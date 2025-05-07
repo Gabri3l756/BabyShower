@@ -3,6 +3,16 @@ import pandas as pd
 import random
 from datetime import datetime
 import os
+import io
+from PIL import Image
+import matplotlib.pyplot as plt
+import time
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+import json
+from streamlit.components.v1 import html as st_html
+import time
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -77,17 +87,89 @@ st.image("assets/banner.png", use_container_width=True)
 # --- BARRA DE NAVEGACIÓN EN PESTAÑAS ---
 tab1, tab2, tab3 = st.tabs(["📝 Registro", "🔍 Consultar", "⚙️ Configuración"])
 
+# --- CONSTANTES DE ANIMACIÓN ---
+ANIMATION_DURATION_MS = 6000
+ANIMATION_DURATION_S  = ANIMATION_DURATION_MS / 1000 + 0.1  # segundos + buffer
+
+# --- Función para generar el anillo 3D horizontal con duración parametrizada ---
+def build_wheel_3d_horizontal(cats, elegido, dur=6000):
+    n = len(cats)
+    step = 360 / n
+    idx = cats.index(elegido)
+    base = -idx * step
+    colors = ["#FFB6C1", "#FFDAB9", "#E6E6FA", "#FFFACD", "#C1FFC1", "#B0E0E6"]
+    
+    panels_html = ""
+    for i, cat in enumerate(cats):
+        panels_html += f'''
+      <div class="panel" data-idx="{i}"
+           style="
+             position:absolute;
+             top:50%; left:50%;
+             width:160px; height:60px;
+             margin:-30px 0 0 -80px;
+             line-height:60px;
+             text-align:center;
+             font-size:1rem;
+             color:#333;
+             background:{colors[i % len(colors)]};
+             transform: rotateY({i * step}deg) translateZ(150px);
+             opacity:0.1;
+             transition: opacity 0.5s;
+           ">
+        {cat}
+      </div>'''
+
+    return f'''
+<div id="scene" style="perspective: 800px; width:320px; height:240px; margin:auto; overflow:visible;">
+  <div id="cylinder" style="width:100%; height:100%; position:relative; transform-style: preserve-3d; transform: rotateY({base}deg);">
+    {panels_html}
+  </div>
+</div>
+
+<script>
+  const cyl    = document.getElementById('cylinder');
+  const panels = cyl.querySelectorAll('.panel');
+  const spins  = 3;
+  const dur    = {dur};
+  const base   = {base};
+
+  // 1) Iniciar la animación sumando las vueltas completas
+  setTimeout(() => {{
+    cyl.style.transition = `transform ${{dur}}ms ease-out`;
+    cyl.style.transform  = `rotateY(${{base - spins * 360}}deg)`;
+  }}, 100);
+
+  // 2) Al terminar la transición, destacar solo el ganador
+  cyl.addEventListener('transitionend', () => {{
+    panels.forEach(p => {{
+      p.style.opacity = (+p.dataset.idx === {idx}) ? '1' : '0.1';
+    }});
+  }});
+</script>
+
+<style>
+  .panel {{
+    transform-origin: center center -150px;
+    backface-visibility: hidden;
+  }}
+</style>
+'''
+
 # --- PESTAÑA 1: REGISTRO ---
 with tab1:
     st.subheader("🎁 Registro y asignación de Categoría")
 
+    # ---------- FORMULARIO ----------
     with st.form("registro_form"):
         nombre = st.text_input("Nombre completo")
         acompañantes = st.text_input("Número de acompañantes (opcional)", max_chars=6, value="0")
         celular = st.text_input("Número de celular (sin espacios ni +57)", max_chars=10)
         enviado = st.form_submit_button("Registrarme")
 
+    # ---------- PROCESAMIENTO ----------
     if enviado:
+        # 1) Validaciones básicas
         if not nombre or not celular:
             st.warning("Por favor completa todos los campos.")
             st.stop()
@@ -98,13 +180,27 @@ with tab1:
             st.error("Este número ya ha sido registrado.")
             st.stop()
 
+        # 2) Verificar categorías con cupo disponible
         conteo = inscritos["Categoría"].value_counts().to_dict()
         disponibles = [cat for cat, cupo in categorias.items() if conteo.get(cat, 0) < cupo]
         if not disponibles:
             st.error("Ya se asignaron todas las categorías disponibles.")
             st.stop()
 
+        # 3) Elegir la categoría definitiva
         asignada = random.choice(disponibles)
+
+        # 1) Mostrar anillo 3D con duración parametrizada
+        st_html(
+            build_wheel_3d_horizontal(disponibles, asignada, dur=ANIMATION_DURATION_MS),
+            height=250
+        )
+
+        # 2) Esperar a que termine la animación
+        time.sleep(ANIMATION_DURATION_S)
+        
+
+        # 4) Guardar registro
         nueva = {
             "Nombre": nombre,
             "Celular": celular,
