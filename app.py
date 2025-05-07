@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 import json
 from streamlit.components.v1 import html as st_html
 import time
+from github import Github
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -266,6 +267,42 @@ with tab1:
         }
         inscritos = pd.concat([inscritos, pd.DataFrame([nueva])], ignore_index=True)
         inscritos.to_csv(csv_file, index=False)
+
+
+
+        # 1) Conéctate a GitHub usando el token de los Secrets
+        token = st.secrets["general"]["GITHUB_TOKEN"]
+        gh    = Github(token)
+
+        # 2) Obtén tu repositorio: reemplaza con tu usuario y nombre de repo
+        #     Ejemplo: "miusuario/babyshower-app"
+        repo = gh.get_repo("Gabri3l756/BabyShower")
+
+        path = "inscritos.csv"   # la ruta dentro del repo
+
+        # 3) Lee el contenido local para push
+        with open(csv_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        try:
+            # 4a) Si el archivo ya existe en la rama main, actualízalo
+            contents = repo.get_contents(path, ref="main")
+            repo.update_file(
+                path=path,
+                message="🤖 Actualizar lista de invitados",
+                content=content,
+                sha=contents.sha,
+                branch="main"
+            )
+        except Exception:
+            # 4b) Si no existe aún, créalo
+            repo.create_file(
+                path=path,
+                message="🤖 Crear lista de invitados",
+                content=content,
+                branch="main"
+            )
+
 
         st.success(f"Gracias por registrarte, **{nombre}** 🎉")
         st.markdown(f"🧸 Tu categoría asignada es: **{asignada}**")
