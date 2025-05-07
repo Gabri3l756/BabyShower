@@ -15,6 +15,39 @@ from streamlit.components.v1 import html as st_html
 import time
 from github import Github
 
+# --- CONFIGURACIÓN DE GITHUB ---
+def push_inscritos_to_github(csv_file, repo_name="Gabri3l756/BabyShower", path="inscritos.csv"):
+    # lee token
+    token = st.secrets["general"]["GITHUB_TOKEN"]
+    gh    = Github(token)
+    repo  = gh.get_repo(repo_name)
+    # lee contenido
+    with open(csv_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    try:
+        contents = repo.get_contents(path, ref="main")
+        repo.update_file(
+            path=path,
+            message="🤖 Actualizar lista de invitados (admin)",
+            content=content,
+            sha=contents.sha,
+            branch="main"
+        )
+    except Exception:
+        repo.create_file(
+            path=path,
+            message="🤖 Crear lista de invitados (admin)",
+            content=content,
+            branch="main"
+        )
+
+# Mapeo de meses a español
+MESES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+}
+
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
     page_title="Baby Shower 🎀",
@@ -267,41 +300,7 @@ with tab1:
         }
         inscritos = pd.concat([inscritos, pd.DataFrame([nueva])], ignore_index=True)
         inscritos.to_csv(csv_file, index=False)
-
-
-
-        # 1) Conéctate a GitHub usando el token de los Secrets
-        token = st.secrets["general"]["GITHUB_TOKEN"]
-        gh    = Github(token)
-
-        # 2) Obtén tu repositorio: reemplaza con tu usuario y nombre de repo
-        #     Ejemplo: "miusuario/babyshower-app"
-        repo = gh.get_repo("Gabri3l756/BabyShower")
-
-        path = "inscritos.csv"   # la ruta dentro del repo
-
-        # 3) Lee el contenido local para push
-        with open(csv_file, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        try:
-            # 4a) Si el archivo ya existe en la rama main, actualízalo
-            contents = repo.get_contents(path, ref="main")
-            repo.update_file(
-                path=path,
-                message="🤖 Actualizar lista de invitados",
-                content=content,
-                sha=contents.sha,
-                branch="main"
-            )
-        except Exception:
-            # 4b) Si no existe aún, créalo
-            repo.create_file(
-                path=path,
-                message="🤖 Crear lista de invitados",
-                content=content,
-                branch="main"
-            )
+        push_inscritos_to_github(csv_file)
 
 
         st.success(f"Gracias por registrarte, **{nombre}** 🎉")
@@ -325,10 +324,31 @@ with tab2:
             df_filtrado = inscritos[inscritos["Celular"].astype(str) == celular_consulta]
             if not df_filtrado.empty:
                 registro = df_filtrado.iloc[-1]
+                cat = registro["Categoría"]
                 st.write(f"**Nombre:** {registro['Nombre']}")
-                st.write(f"**Categoría:** {registro['Categoría']}")
-                st.write(f"**Fecha:** {registro['Fecha']}")
+                st.write(f"**Categoría:** {cat}")
+
+                # --- formateamos la fecha ---
+                raw = registro["Fecha"]                         # e.g. "2025-05-07 14:05"
+                dt  = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+                fecha_bonita = (
+                    f"{dt.day} de {MESES[dt.month]} de {dt.year}, "
+                    f"{dt.hour:02d}:{dt.minute:02d}"
+                )
+                # Markdown con estilo
+                st.markdown(
+                    f"""
+                    <p style="font-size:16px; color:#555;">
+                    📅 <strong style="color:#333;">Fecha:</strong> {fecha_bonita}
+                    </p>
+                    """,
+                    unsafe_allow_html=True
+                )
+
                 st.write(f"**Acompañantes:** {registro['Acompañantes']}")
+
+                img_path = img_map.get(cat, "assets/baby_icon.png")
+                st.image(img_path, width=400)
             else:
                 st.error("No se encontró ningún registro con ese número.")
 
@@ -408,6 +428,7 @@ with tab3:
                     ]
                     inscritos.to_csv(csv_file, index=False)
                     st.success("Invitado actualizado correctamente.")
+                    push_inscritos_to_github(csv_file)
                     try:
                         st.experimental_rerun()
                     except AttributeError:
@@ -417,6 +438,7 @@ with tab3:
                 inscritos = inscritos[inscritos['Celular'] != sel]
                 inscritos.to_csv(csv_file, index=False)
                 st.success("Invitado eliminado correctamente.")
+                push_inscritos_to_github(csv_file)
                 try:
                     st.experimental_rerun()
                 except AttributeError:
