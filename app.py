@@ -14,6 +14,10 @@ import json
 from streamlit.components.v1 import html as st_html
 import time
 from github import Github
+import altair as alt
+
+import smtplib
+from email.message import EmailMessage
 
 # --- CONFIGURACIÓN DE GITHUB ---
 def push_inscritos_to_github(csv_file, repo_name="Gabri3l756/BabyShower", path="inscritos.csv"):
@@ -41,12 +45,58 @@ def push_inscritos_to_github(csv_file, repo_name="Gabri3l756/BabyShower", path="
             branch="main"
         )
 
+def notify_hosts(nueva_registro: dict):
+    """
+    Envía un correo a los anfitriones con los datos de la nueva inscripción.
+    nueva_registro debe tener llaves: Nombre, Celular, Categoría, Fecha, Acompañantes
+    """
+    secrets = st.secrets["email"]
+    smtp_server = secrets["SMTP_SERVER"]
+    smtp_port   = secrets["SMTP_PORT"]
+    user        = secrets["USER"]
+    password    = secrets["PASSWORD"]
+    hosts       = secrets["HOSTS"]
+
+    # Construir el mensaje
+    msg = EmailMessage()
+    msg["Subject"] = f"Nuevo registro: {nueva_registro['Nombre']}"
+    msg["From"]    = user
+    msg["To"]      = ", ".join(hosts)
+    body = f"""
+    ¡Hola!
+
+    Se ha registrado un nuevo invitado:
+
+      • Nombre      : {nueva_registro['Nombre']}
+      • Celular     : {nueva_registro['Celular']}
+      • Categoría   : {nueva_registro['Categoría']}
+      • Acompañantes: {nueva_registro['Acompañantes']}
+      • Fecha       : {nueva_registro['Fecha']}
+
+    ¡Saludos!
+    """
+    msg.set_content(body)
+
+    # Enviar
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    except Exception as e:
+        st.error(f"No se pudo notificar a los anfitriones: {e}")
+
+
 # Mapeo de meses a español
 MESES = {
     1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
     5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
     9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
 }
+
+# clave admin
+ADMIN_PWD = "7560"
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -119,7 +169,7 @@ else:
 st.image("assets/banner.png", use_container_width=True)
 
 # --- BARRA DE NAVEGACIÓN EN PESTAÑAS ---
-tab1, tab2, tab3 = st.tabs(["📝 Registro", "🔍 Consultar", "⚙️ Configuración"])
+tab1, tab2, tab3, tab4 = st.tabs(["📝 Registro", "🔍 Consultar", "📊 Análisis", "⚙️ Configuración"])
 
 # --- CONSTANTES DE ANIMACIÓN ---
 ANIMATION_DURATION_MS = 6000
@@ -302,6 +352,16 @@ with tab1:
         inscritos.to_csv(csv_file, index=False)
         push_inscritos_to_github(csv_file)
 
+        # 5) Notificar por email
+        nueva = {
+            "Nombre": nombre,
+            "Celular": celular,
+            "Categoría": asignada,
+            "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Acompañantes": acompañantes
+        }
+        notify_hosts(nueva)
+
 
         st.success(f"Gracias por registrarte, **{nombre}** 🎉")
         st.markdown(f"🧸 Tu categoría asignada es: **{asignada}**")
@@ -352,18 +412,82 @@ with tab2:
             else:
                 st.error("No se encontró ningún registro con ese número.")
 
-# --- PESTAÑA CONFIGURACIÓN ---
+# --- PESTAÑA: ANÁLISIS / DASHBOARD ---
 with tab3:
-    st.subheader("⚙️ Configuración (Admin)")
-    pwd = st.text_input("Clave", type="password")
-    if pwd == "7560":
-        st.success("Acceso concedido")
+    st.subheader("📊 Dashboard de Registro")
+    pwd2 = st.text_input("🔒 Clave", type="password", key="dash_pwd")
+    if pwd2 != ADMIN_PWD:
+        st.warning("🔐 Ingresa la contraseña para acceder a Configuración")
+    else:             
+        # --- Métricas resumen ---
+        total_invitados = inscritos.shape[0] # total de filas en el DataFrame
+        total_acomp      = inscritos["Acompañantes"].astype(int).sum()
+        total_asistentes   = total_invitados + total_acomp
+        avg_acomp        = (total_acomp / total_invitados) if total_invitados else 0
 
-        # 1) Mostrar invitados
-        st.subheader("🧾 Lista de invitados registrados")
-        st.dataframe(inscritos)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("👥 Invitados", total_invitados)
+        c2.metric("🤝 Acompañantes", total_acomp)
+        c3.metric("🎉 Total Asistentes",       total_asistentes)
+        c4.metric("📈 Acompañantes / Invitado", f"{avg_acomp:.2f}")
 
-        # 2) Mostrar estado actual de categorías
+        st.markdown("---")
+
+        # --- Datos por categoría ---
+        counts = inscritos["Categoría"].value_counts().to_dict()
+        df_stats = pd.DataFrame([
+            {
+                "Categoría": cat,
+                "Asignadas": counts.get(cat, 0),
+                "Disponibles": max(0, categorias[cat] - counts.get(cat, 0))
+            }
+            for cat in categorias
+        ])
+
+        # --- 1) Gráfico de barras con Altair y tooltip ---
+        st.subheader("🎯 Cupos por Categoría")
+        df_bars = df_stats.melt(
+            id_vars="Categoría", 
+            value_vars=["Asignadas", "Disponibles"], 
+            var_name="Tipo", value_name="Cantidad"
+        )
+        bars = (
+            alt.Chart(df_bars)
+            .mark_bar(cornerRadiusEnd=4)
+            .encode(
+                x=alt.X("Categoría:N", sort=list(categorias.keys()), axis=alt.Axis(title=None)),
+                y=alt.Y("Cantidad:Q", axis=alt.Axis(title="Invitados")),
+                color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Asignadas","Disponibles"],
+                                                        range=["#636EFA","#EF553B"])),
+                tooltip=["Categoría","Tipo","Cantidad"]
+            )
+            .properties(height=300, width="container")
+        )
+        st.altair_chart(bars, use_container_width=True)
+
+        st.markdown("---")
+
+        # --- 2) Gráfico circular (donut) con Altair ---
+        st.subheader("📊 Distribución de Asignaciones")
+        pie = (
+            alt.Chart(df_stats)
+            .mark_arc(innerRadius=50, cornerRadius=3)
+            .encode(
+                theta=alt.Theta("Asignadas:Q", stack=True),
+                color=alt.Color("Categoría:N", legend=alt.Legend(title="Categoría")),
+                tooltip=["Categoría","Asignadas"]
+            )
+            .properties(width=250, height=250)
+        )
+        st.altair_chart(pie)
+
+        st.markdown("---")
+
+        # --- 3) Tabla completa de invitados ---
+        st.subheader("📋 Lista de Invitados")
+        st.dataframe(inscritos, use_container_width=True)
+
+        # Mostrar estado actual de categorías
         counts = inscritos["Categoría"].value_counts().to_dict()
         data_cats = [
             {
@@ -376,6 +500,18 @@ with tab3:
         df_cats = pd.DataFrame(data_cats)
         st.subheader("📊 Estado de categorías")
         st.table(df_cats)
+
+# --- PESTAÑA CONFIGURACIÓN ---
+with tab4:
+    st.subheader("⚙️ Configuración (Admin)")
+    pwd = st.text_input("🔒 Clave", type="password", key="config_pwd")
+    if pwd != ADMIN_PWD:
+        st.warning("🔐 Ingresa la contraseña para acceder a Configuración")
+    else:
+    # st.subheader("⚙️ Configuración (Admin)")
+    # pwd = st.text_input("Clave", type="password")
+    # if pwd == "7560":
+    #     st.success("Acceso concedido")
 
         # 3) Ajustar cupo de una categoría específica (al final)
         st.subheader("✏️ Ajustar cupo por categoría")
