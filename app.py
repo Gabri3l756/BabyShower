@@ -55,6 +55,16 @@ else:
         for c in categorias
     ]).to_csv(cat_file, index=False)
 
+# Diccionario de imágenes por categoría
+img_map = {
+    "Vestimenta": "assets/vestimenta.png",
+    "Higiene y Baño": "assets/higieneyba.png",
+    "Alimentación": "assets/alimentacion.png",
+    "Juguetes y Estimulación": "assets/juguetes.png",
+    "Cambio de Pañal": "assets/cambiopa.png",
+    "Hora de Dormir": "assets/dormir.png"
+}
+
 # --- CARGAR O CREAR CSV ---
 csv_file = "inscritos.csv"
 if os.path.exists(csv_file):
@@ -107,7 +117,8 @@ with tab1:
 
         st.success(f"Gracias por registrarte, **{nombre}** 🎉")
         st.markdown(f"🧸 Tu categoría asignada es: **{asignada}**")
-        st.image("assets/baby_icon.png", width=120)
+        img_path = img_map.get(asignada, "assets/baby_icon.png")
+        st.image(img_path, width=400)
 
         mensaje = f"Hola {nombre}, tu categoría asignada para el baby shower es: {asignada} 🎁"
         enc = mensaje.replace(" ", "%20").replace(":", "%3A").replace("\n", "%0A")
