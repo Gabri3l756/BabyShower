@@ -92,13 +92,19 @@ ANIMATION_DURATION_MS = 6000
 ANIMATION_DURATION_S  = ANIMATION_DURATION_MS / 1000 + 0.1  # segundos + buffer
 
 # --- Función para generar el anillo 3D horizontal con duración parametrizada ---
-def build_wheel_3d_horizontal(cats, elegido, dur=6000):
+def build_wheel_3d_vertical(cats, elegido, dur=6000):
     n = len(cats)
     step = 360 / n
     idx = cats.index(elegido)
-    base = -idx * step
+    spins = 3
+
+    # Parte inicial está en -90 para que panel en X=0 quede de frente
+    base_angle = -90
+    final_angle = -idx * step + base_angle
+    total_rotation = final_angle - spins * 360
+
     colors = ["#FFB6C1", "#FFDAB9", "#E6E6FA", "#FFFACD", "#C1FFC1", "#B0E0E6"]
-    
+
     panels_html = ""
     for i, cat in enumerate(cats):
         panels_html += f'''
@@ -113,7 +119,7 @@ def build_wheel_3d_horizontal(cats, elegido, dur=6000):
              font-size:1rem;
              color:#333;
              background:{colors[i % len(colors)]};
-             transform: rotateY({i * step}deg) translateZ(150px);
+             transform: rotateX({i * step}deg) translateZ(150px);
              opacity:0.1;
              transition: opacity 0.5s;
            ">
@@ -122,7 +128,7 @@ def build_wheel_3d_horizontal(cats, elegido, dur=6000):
 
     return f'''
 <div id="scene" style="perspective: 800px; width:320px; height:240px; margin:auto; overflow:visible;">
-  <div id="cylinder" style="width:100%; height:100%; position:relative; transform-style: preserve-3d; transform: rotateY({base}deg);">
+  <div id="cylinder" style="width:100%; height:100%; position:relative; transform-style: preserve-3d; transform: rotateX({base_angle}deg);">
     {panels_html}
   </div>
 </div>
@@ -130,20 +136,18 @@ def build_wheel_3d_horizontal(cats, elegido, dur=6000):
 <script>
   const cyl    = document.getElementById('cylinder');
   const panels = cyl.querySelectorAll('.panel');
-  const spins  = 3;
   const dur    = {dur};
-  const base   = {base};
+  const final  = {total_rotation};
+  const idx    = {idx};
 
-  // 1) Iniciar la animación sumando las vueltas completas
   setTimeout(() => {{
     cyl.style.transition = `transform ${{dur}}ms ease-out`;
-    cyl.style.transform  = `rotateY(${{base - spins * 360}}deg)`;
+    cyl.style.transform  = `rotateX(${{final}}deg)`;
   }}, 100);
 
-  // 2) Al terminar la transición, destacar solo el ganador
   cyl.addEventListener('transitionend', () => {{
     panels.forEach(p => {{
-      p.style.opacity = (+p.dataset.idx === {idx}) ? '1' : '0.1';
+      p.style.opacity = (+p.dataset.idx === idx) ? '1' : '0.1';
     }});
   }});
 </script>
@@ -155,7 +159,6 @@ def build_wheel_3d_horizontal(cats, elegido, dur=6000):
   }}
 </style>
 '''
-
 # --- PESTAÑA 1: REGISTRO ---
 with tab1:
     st.subheader("🎁 Registro y asignación de Categoría")
@@ -190,14 +193,67 @@ with tab1:
         # 3) Elegir la categoría definitiva
         asignada = random.choice(disponibles)
 
-        # 1) Mostrar anillo 3D con duración parametrizada
-        st_html(
-            build_wheel_3d_horizontal(disponibles, asignada, dur=ANIMATION_DURATION_MS),
-            height=250
-        )
+        # mapping de nombre->ruta de imagen si quieres mostrar íconos
+        img_map = {
+            "Vestimenta": "assets/vestimenta.png",
+            "Higiene y Baño": "assets/higieneyba.png",
+            "Alimentación": "assets/alimentacion.png",
+            "Juguetes y Estimulación": "assets/juguetes.png",
+            "Cambio de Pañal": "assets/cambiopa.png",
+            "Hora de Dormir": "assets/dormir.png"
+        }
 
-        # 2) Esperar a que termine la animación
-        time.sleep(ANIMATION_DURATION_S)
+        # placeholder para la animación
+        ph = st.empty()
+
+        # número de ciclos (vueltas completas sobre la lista)
+        vueltas = 5
+        # velocidad de “scroll” en segundos
+        delay = 0.1
+
+        # animación: desliza cada nombre verticalmente
+        for _ in range(vueltas):
+            for cat in disponibles:
+                ph.markdown(f"""
+        <div style="
+        height:150px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:2rem;
+        color:#555;
+        border:2px solid #eee;
+        border-radius:8px;
+        background:#fafafa;
+        ">
+        {cat}
+        </div>
+        """, unsafe_allow_html=True)
+                time.sleep(delay)
+
+        # un “paso” final para aterrizar sobre la categoría asignada
+        # calculamos cuántos elementos saltamos hasta llegar a `asignada`
+        start_idx = 0  # asumimos que empieza en disponibles[0] al iniciar
+        offset = disponibles.index(asignada)
+        for i in range(offset+1):
+            cat = disponibles[i]
+            ph.markdown(f"""
+        <div style="
+        height:150px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:2rem;
+        font-weight:bold;
+        color:#222;
+        border:3px solid #8bc34a;
+        border-radius:8px;
+        background:#e8f5e9;
+        ">
+        {cat}
+        </div>
+        """, unsafe_allow_html=True)
+            time.sleep(delay)
         
 
         # 4) Guardar registro
