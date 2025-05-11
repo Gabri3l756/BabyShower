@@ -20,27 +20,47 @@ import smtplib
 from email.message import EmailMessage
 
 # --- CONFIGURACIÓN DE GITHUB ---
-def push_inscritos_to_github(csv_file, repo_name="Gabri3l756/BabyShower", path="inscritos.csv"):
-    # lee token
+def push_file_to_github(
+    local_path: str,
+    repo_name: str = "Gabri3l756/BabyShower",
+    repo_path: str = None,
+    message: str = None
+):
+    """
+    Sube o actualiza cualquier fichero de tu app al repo de GitHub.
+    - local_path: ruta local (e.g. csv_file o cat_file)
+    - repo_path: ruta en el repo (por defecto, toma el nombre del fichero)
+    - message: mensaje de commit (por defecto, '🤖 Actualizar <repo_path>')
+    """
     token = st.secrets["general"]["GITHUB_TOKEN"]
     gh    = Github(token)
     repo  = gh.get_repo(repo_name)
-    # lee contenido
-    with open(csv_file, "r", encoding="utf-8") as f:
+
+    # Determinar repo_path y message si no vienen
+    if repo_path is None:
+        repo_path = os.path.basename(local_path)
+    if message is None:
+        message = f"🤖 Actualizar {repo_path}"
+
+    # Leer contenido local
+    with open(local_path, "r", encoding="utf-8") as f:
         content = f.read()
+
     try:
-        contents = repo.get_contents(path, ref="main")
+        # Si ya existe, lo actualiza
+        contents = repo.get_contents(repo_path, ref="main")
         repo.update_file(
-            path=path,
-            message="🤖 Actualizar lista de invitados (admin)",
+            path=repo_path,
+            message=message,
             content=content,
             sha=contents.sha,
             branch="main"
         )
     except Exception:
+        # Si no existe, lo crea
         repo.create_file(
-            path=path,
-            message="🤖 Crear lista de invitados (admin)",
+            path=repo_path,
+            message=message,
             content=content,
             branch="main"
         )
@@ -350,7 +370,11 @@ with tab1:
         }
         inscritos = pd.concat([inscritos, pd.DataFrame([nueva])], ignore_index=True)
         inscritos.to_csv(csv_file, index=False)
-        push_inscritos_to_github(csv_file)
+        push_file_to_github(
+            local_path=csv_file,
+            repo_path="inscritos.csv",
+            message="🤖 Actualizar lista de invitados"
+        )
 
         # 5) Notificar por email
         nueva = {
@@ -535,7 +559,11 @@ with tab4:
                 {"Categoría": c, "Cupo total": categorias[c]}
                 for c in categorias
             ]).to_csv(cat_file, index=False)
-
+            push_file_to_github(
+                local_path=cat_file,
+                repo_path="categorias.csv",
+                message=f"🤖 Actualizar cupo de categoría «{cat_sel}» a {nuevo_cupo}"
+            )
             st.success(f"Cupo de «{cat_sel}» actualizado a {nuevo_cupo}")
 
 
@@ -564,7 +592,11 @@ with tab4:
                     ]
                     inscritos.to_csv(csv_file, index=False)
                     st.success("Invitado actualizado correctamente.")
-                    push_inscritos_to_github(csv_file)
+                    push_file_to_github(
+                        local_path=csv_file,
+                        repo_path="inscritos.csv",
+                        message="🤖 Actualizar lista de invitados"
+                    )
                     try:
                         st.experimental_rerun()
                     except AttributeError:
@@ -574,7 +606,11 @@ with tab4:
                 inscritos = inscritos[inscritos['Celular'] != sel]
                 inscritos.to_csv(csv_file, index=False)
                 st.success("Invitado eliminado correctamente.")
-                push_inscritos_to_github(csv_file)
+                push_file_to_github(
+                    local_path=csv_file,
+                    repo_path="inscritos.csv",
+                    message="🤖 Actualizar lista de invitados"
+                )
                 try:
                     st.experimental_rerun()
                 except AttributeError:
